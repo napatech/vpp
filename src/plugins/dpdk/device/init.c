@@ -398,6 +398,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	    case VNET_DPDK_PMD_CXGBE:
 	    case VNET_DPDK_PMD_MLX4:
 	    case VNET_DPDK_PMD_MLX5:
+	    case VNET_DPDK_PMD_NTACC:
 	      xd->port_type = port_type_from_speed_capa (&dev_info);
 	      break;
 
