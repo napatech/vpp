@@ -320,6 +320,7 @@ BUILD_ENV =										\
     export PATH=$(TOOL_INSTALL_DIR)/ccache-bin:$(TOOL_INSTALL_DIR)/bin:$${PATH} ;	\
     export PATH="`echo $${PATH} | sed -e s/[.]://`" ;					\
     $(if $(not_native),export CONFIG_SITE=$(MU_BUILD_ROOT_DIR)/config.site ;,)	\
+    export LD_LIBRARY_PATH=$(LD_LIBRARY_PATH);$(TOOL_INSTALL_DIR)/lib64:$(TOOL_INSTALL_DIR)/lib ; \
     set -eu$(BUILD_DEBUG) ;							        \
     set -o pipefail
 

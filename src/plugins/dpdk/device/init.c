@@ -398,6 +398,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	    case VNET_DPDK_PMD_CXGBE:
 	    case VNET_DPDK_PMD_MLX4:
 	    case VNET_DPDK_PMD_MLX5:
+	    case VNET_DPDK_PMD_NTACC:
 	      xd->port_type = port_type_from_speed_capa (&dev_info);
 	      break;
 
@@ -1372,6 +1373,9 @@ dpdk_update_link_state (dpdk_device_t * xd, f64 now)
 	  break;
 	case ETH_SPEED_NUM_40G:
 	  hw_flags |= VNET_HW_INTERFACE_FLAG_SPEED_40G;
+	  break;
+	case ETH_SPEED_NUM_100G:
+	  hw_flags |= VNET_HW_INTERFACE_FLAG_SPEED_100G;
 	  break;
 	case 0:
 	  break;

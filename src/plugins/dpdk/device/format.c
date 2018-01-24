@@ -336,6 +336,10 @@ format_dpdk_device_type (u8 * s, va_list * args)
       dev_type = "AWS ENA VF";
       break;
 
+    case VNET_DPDK_PMD_NTACC:
+      dev_type ="Napatech NTACC";
+      break;
+      
     default:
     case VNET_DPDK_PMD_UNKNOWN:
       dev_type = "### UNKNOWN ###";
