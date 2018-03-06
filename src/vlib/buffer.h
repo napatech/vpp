@@ -99,7 +99,8 @@ typedef struct
 #define VLIB_BUFFER_RECYCLE (1 << 10)
 #define VLIB_BUFFER_FLOW_REPORT (1 << 11)
 #define VLIB_BUFFER_EXT_HDR_VALID (1 << 12)
-
+#define VLIB_BUFFER_ACL_DROP (1 << 13)
+#define VLIB_BUFFER_ACL_PERMIT (1 << 14)
   /* User defined buffer flags. */
 #define LOG2_VLIB_BUFFER_FLAG_USER(n) (32 - (n))
 #define VLIB_BUFFER_FLAG_USER(n) (1 << LOG2_VLIB_BUFFER_FLAG_USER(n))

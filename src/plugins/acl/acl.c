@@ -183,6 +183,31 @@ acl_add_list (u32 count, vl_api_acl_rule_t rules[],
   acl_rule_t *acl_new_rules = 0;
   int i;
 
+#ifdef ENABLE_ACL_HW_OFFLOAD
+  /* detect if HW offload can be used */
+  if (vec_len(am->fn_hw_offload_acl_add_del_vec_by_sw_if_index) == 0) {
+    fn_offload_supported_t fn_offload_supported =
+      vlib_get_plugin_symbol ("dpdk_plugin.so", "dpdk_acl_offload_supported");
+    fn_offload_add_del_t fn_offload_add_del =
+      vlib_get_plugin_symbol ("dpdk_plugin.so", "dpdk_acl_offload_add_del");
+    vnet_interface_main_t *im = &am->vnet_main->interface_main;
+    am->fn_hw_offload_acl_add_del_vec_by_sw_if_index = vec_new(void *, pool_elts(im->sw_interfaces));
+    int j;
+    for (j = 0; j < vec_len(am->fn_hw_offload_acl_add_del_vec_by_sw_if_index); j++) {
+      void **fn = vec_elt_at_index(am->fn_hw_offload_acl_add_del_vec_by_sw_if_index, j);
+      *fn = NULL;
+      /* Skip local0 */
+      if (j > 0) {
+        fprintf(stderr, "###### fn_offload_supported = %p\n", fn_offload_supported);
+        if (fn_offload_supported && fn_offload_supported(j) == 0) {
+          *fn = fn_offload_add_del;
+        }
+      }
+      fprintf(stderr, "##### FN(%d) = %p\n", j, *fn);
+    }
+  }
+#endif
+
   if (*acl_list_index != ~0)
     {
       /* They supplied some number, let's see if this ACL exists */

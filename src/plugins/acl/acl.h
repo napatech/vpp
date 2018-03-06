@@ -30,6 +30,8 @@
 #include "fa_node.h"
 #include "hash_lookup_types.h"
 
+#define ENABLE_ACL_HW_OFFLOAD
+
 #define  ACL_PLUGIN_VERSION_MAJOR 1
 #define  ACL_PLUGIN_VERSION_MINOR 3
 
@@ -127,6 +129,9 @@ typedef struct
   fa_5tuple_t mask;
   u32 refcount;
 } ace_mask_type_entry_t;
+
+typedef int (*fn_offload_supported_t)(u32 sw_if_index);
+typedef void (*fn_offload_add_del_t)(void **handle, acl_rule_t *rule, u32 sw_if_index, u8 is_input, u8 add);
 
 typedef struct {
   /* mheap to hold all the ACL module related allocations, other than hash */
@@ -270,6 +275,8 @@ typedef struct {
   foreach_fa_cleaner_counter
 #undef _
 
+  void **fn_hw_offload_acl_add_del_vec_by_sw_if_index;
+  
   /* convenience */
   vlib_main_t * vlib_main;
   vnet_main_t * vnet_main;

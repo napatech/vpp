@@ -244,6 +244,44 @@ activate_applied_ace_hash_entry(acl_main_t *am,
   }
 }
 
+extern void
+acl_plugin_show_acl (acl_main_t * am, u32 acl_index);
+
+static void
+rules_offload_add_del(acl_main_t *am, u32 sw_if_index, u8 is_input, int acl_index, u8 is_add)
+{
+  if(! am->fn_hw_offload_acl_add_del_vec_by_sw_if_index) {
+    return;
+  }
+  fn_offload_add_del_t fn_offload_add_del = *(fn_offload_add_del_t*)
+  vec_elt_at_index(am->fn_hw_offload_acl_add_del_vec_by_sw_if_index, sw_if_index);
+  if (! fn_offload_add_del) {
+    return;
+  }
+
+  acl_plugin_show_acl(am, 0);
+
+  applied_hash_ace_entry_t **applied_hash_aces = get_applied_hash_aces(am, is_input, sw_if_index);
+  int i;
+  if (is_add) {
+    for(i=0; i < vec_len(*applied_hash_aces); i++) {
+      applied_hash_ace_entry_t *pae = vec_elt_at_index((*applied_hash_aces), i);
+      if (pae->prev_applied_entry_index == ~0) {
+        acl_rule_t *r = &am->acls[pae->acl_index].rules[pae->ace_index];
+        fn_offload_add_del(&pae->hw_offload_handle, r, sw_if_index, is_input, is_add) ;
+      }
+    }
+  } else {
+    for(i=0; i < vec_len(*applied_hash_aces); i++) {
+      applied_hash_ace_entry_t *pae = vec_elt_at_index((*applied_hash_aces), i);
+      if (pae->prev_applied_entry_index == ~0) {
+        acl_rule_t *r = &am->acls[pae->acl_index].rules[pae->ace_index];
+        fn_offload_add_del(&pae->hw_offload_handle, r, sw_if_index, is_input, is_add) ;
+      }
+    }
+  }
+}
+
 static void
 applied_hash_entries_analyze(acl_main_t *am, applied_hash_ace_entry_t **applied_hash_aces)
 {
@@ -379,6 +417,9 @@ hash_acl_apply(acl_main_t *am, u32 sw_if_index, u8 is_input, int acl_index)
     activate_applied_ace_hash_entry(am, sw_if_index, is_input, applied_hash_aces, new_index);
   }
   applied_hash_entries_analyze(am, applied_hash_aces);
+
+  rules_offload_add_del(am, sw_if_index, is_input, acl_index, 1);
+
 done:
   clib_mem_set_heap (oldheap);
 }
@@ -523,6 +564,8 @@ void
 hash_acl_unapply(acl_main_t *am, u32 sw_if_index, u8 is_input, int acl_index)
 {
   int i;
+
+  rules_offload_add_del(am, sw_if_index, is_input, acl_index, 0);
 
   DBG0("HASH ACL unapply: sw_if_index %d is_input %d acl %d", sw_if_index, is_input, acl_index);
   applied_hash_acl_info_t **applied_hash_acls = is_input ? &am->input_applied_hash_acl_info_by_sw_if_index

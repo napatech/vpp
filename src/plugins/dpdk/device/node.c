@@ -151,6 +151,7 @@ dpdk_rx_burst (dpdk_main_t * dm, dpdk_device_t * xd, u16 queue_id)
   return n_buffers;
 }
 
+#define RTE_FLOW_MARK_SUPPORT
 
 static_always_inline void
 dpdk_process_subseq_segs (vlib_main_t * vm, vlib_buffer_t * b,
@@ -367,6 +368,21 @@ dpdk_device_input (dpdk_main_t * dm, dpdk_device_t * xd,
 	      b2->error = node->errors[error2];
 	      b3->error = node->errors[error3];
 	    }
+      
+#ifdef RTE_FLOW_MARK_SUPPORT
+	  if (mb0->ol_flags & PKT_RX_FDIR_ID) {
+		  b0->flags |= (mb0->hash.fdir.hi);
+    }
+	  if (mb1->ol_flags & PKT_RX_FDIR_ID) {
+		  b1->flags |= (mb1->hash.fdir.hi);
+    }
+	  if (mb2->ol_flags & PKT_RX_FDIR_ID) {
+		  b2->flags |= (mb2->hash.fdir.hi);
+    }
+	  if (mb3->ol_flags & PKT_RX_FDIR_ID) {
+		  b3->flags |= (mb3->hash.fdir.hi);
+    }
+#endif
 
 	  offset0 = device_input_next_node_advance[next0];
 	  b0->current_data = mb0->data_off + offset0 - RTE_PKTMBUF_HEADROOM;
@@ -471,6 +487,11 @@ dpdk_device_input (dpdk_main_t * dm, dpdk_device_t * xd,
 	  dpdk_rx_error_from_mb (mb0, &next0, &error0);
 	  b0->error = node->errors[error0];
 
+#ifdef RTE_FLOW_MARK_SUPPORT
+	  if (mb0->ol_flags & PKT_RX_FDIR_ID) {
+		  b0->flags |= (mb0->hash.fdir.hi);
+    }
+#endif
 	  offset0 = device_input_next_node_advance[next0];
 	  b0->current_data = mb0->data_off + offset0 - RTE_PKTMBUF_HEADROOM;
 	  b0->flags |= device_input_next_node_flags[next0];

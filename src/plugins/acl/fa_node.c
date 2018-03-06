@@ -1026,7 +1026,19 @@ acl_fa_node_fn (vlib_main_t * vm,
 	  else
 	    sw_if_index0 = vnet_buffer (b0)->sw_if_index[VLIB_TX];
 
-	  /*
+#ifdef ENABLE_ACL_HW_OFFLOAD
+    // Detect if packet has already been matched
+    if ( ! (b0->flags & VLIB_BUFFER_IS_TRACED) &&
+      (b0->flags & (VLIB_BUFFER_ACL_DROP | VLIB_BUFFER_ACL_PERMIT))) {
+		  acl_check_needed = 0;
+      if (b0->flags & (VLIB_BUFFER_ACL_PERMIT)) {
+        action = 1;
+        pkts_acl_permit += 1;
+      }
+    }
+    if (acl_check_needed) {
+#endif
+ 	  /*
 	   * Extract the L3/L4 matching info into a 5-tuple structure,
 	   * then create a session key whose layout is independent on forward or reverse
 	   * direction of the packet.
@@ -1131,7 +1143,9 @@ acl_fa_node_fn (vlib_main_t * vm,
 		    }
 		}
 	    }
-
+#ifdef ENABLE_ACL_HW_OFFLOAD
+  }
+#endif
 
 
 	  if (action > 0)

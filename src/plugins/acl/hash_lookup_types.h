@@ -72,6 +72,10 @@ typedef struct {
    * Action of this applied ACE
    */
   u8 action;
+  /*
+  * HW offload handle
+  */
+  void *hw_offload_handle;
 } applied_hash_ace_entry_t;
 
 typedef struct {
