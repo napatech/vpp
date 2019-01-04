@@ -452,6 +452,14 @@ dpdk_lib_init (dpdk_main_t * dm)
 	      xd->port_type = port_type_from_speed_capa (&dev_info);
 	      break;
 
+	    case VNET_DPDK_PMD_NTACC:
+	      xd->port_type = port_type_from_speed_capa (&dev_info);
+	      xd->supported_flow_actions = VNET_FLOW_ACTION_MARK |
+		     VNET_FLOW_ACTION_REDIRECT_TO_NODE |
+		     VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE |
+		     VNET_FLOW_ACTION_DROP;
+          break;
+
 	      /* SR-IOV VFs */
 	    case VNET_DPDK_PMD_IGBVF:
 	    case VNET_DPDK_PMD_IXGBEVF:
@@ -796,6 +804,89 @@ dpdk_lib_init (dpdk_main_t * dm)
 	mtu = mtu > ETHER_MAX_LEN ? ETHER_MAX_LEN : mtu;
 
       rte_eth_dev_set_mtu (xd->port_id, mtu);
+
+      /* Set up event device */
+      if (xd->pmd == VNET_DPDK_PMD_NTACC) {
+        int rv;
+        uint8_t q;
+        struct rte_event_dev_info dev_info;
+        struct rte_event_port_conf port_conf;
+        struct rte_event_eth_rx_adapter_queue_conf queue_conf;
+        struct rte_event_dev_config dev_conf;
+        struct rte_event ev;
+
+        if ((rv = rte_event_dev_info_get(xd->port_id, &dev_info)) != 0) {
+          dpdk_log_info("Event device not supported on port %u\n", xd->port_id);
+          continue;
+        }
+
+        port_conf.new_event_threshold = dev_info.max_num_events;
+        port_conf.dequeue_depth = dev_info.max_event_port_dequeue_depth;
+        port_conf.enqueue_depth = dev_info.max_event_port_enqueue_depth;
+
+        if ((rv = rte_event_eth_rx_adapter_create(xd->port_id, xd->port_id, &port_conf)) != 0) {
+          dpdk_log_warn("Could not create event adapter for interface\n");
+          continue;
+        }
+
+        ev.queue_id = 0;
+        ev.sched_type = RTE_SCHED_TYPE_ATOMIC;
+        ev.priority = 0;
+
+        queue_conf.rx_queue_flags = 0;
+        queue_conf.ev = ev;
+        queue_conf.servicing_weight = 1;
+
+        if ((rv = rte_event_eth_rx_adapter_queue_add(xd->port_id, xd->port_id, -1, &queue_conf)) != 0) {
+          dpdk_log_warn("Could not configure event queues\n");
+          continue;
+        }
+
+        dev_conf.nb_event_queues = xd->rx_q_used;
+        dev_conf.nb_event_ports = xd->rx_q_used;
+        dev_conf.nb_events_limit  = 4096;
+        dev_conf.nb_event_queue_flows = 1024;
+        dev_conf.nb_event_port_dequeue_depth = 128;
+        dev_conf.nb_event_port_enqueue_depth = 128;
+
+        if ((rv = rte_event_dev_configure(xd->port_id, &dev_conf)) != 0) {
+          dpdk_log_warn("Could not configure event device\n");
+          continue;
+        }
+
+        port_conf.dequeue_depth = 128;
+        port_conf.enqueue_depth = 128;
+        port_conf.new_event_threshold = 4096;
+        port_conf.disable_implicit_release = 0;
+        for (q = 0; q < xd->rx_q_used; q++) {
+          if ((rv = rte_event_port_setup(xd->port_id, q, &port_conf)) != 0) {
+            dpdk_log_warn("Could not setup event port\n");
+            break;
+          }
+        }
+
+        if (rv)
+          continue;
+
+        for (q = 0; q < xd->rx_q_used; q++) {
+          uint8_t link_q = q;
+          uint8_t priority = RTE_EVENT_DEV_PRIORITY_NORMAL;
+          if ((rv = rte_event_port_link(xd->port_id, q, &link_q, &priority, 1)) != 1) {
+            dpdk_log_warn("Could not link event port\n");
+            break;
+          }
+        }
+
+        if (rv != 1)
+          continue;
+
+        if ((rv = rte_event_eth_rx_adapter_start(xd->port_id)) != 0) {
+          dpdk_log_warn("Could not start event device\n");
+          continue;
+        }
+
+        xd->flags |= DPDK_DEVICE_FLAG_FLOW_EVENTS;
+      }
     }
   /* *INDENT-ON* */
 

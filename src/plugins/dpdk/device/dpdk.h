@@ -43,6 +43,9 @@
 #include <rte_net.h>
 #include <rte_bus_pci.h>
 #include <rte_flow.h>
+#include <rte_eventdev.h>
+#include <rte_event_eth_rx_adapter.h>
+#include <rte_malloc.h>
 
 #include <vnet/unix/pcap.h>
 #include <vnet/devices/devices.h>
@@ -86,7 +89,8 @@ extern vlib_node_registration_t admin_up_down_process_node;
   _ ("net_ena", ENA)              \
   _ ("net_failsafe", FAILSAFE)    \
   _ ("net_liovf", LIOVF_ETHER)    \
-  _ ("net_qede", QEDE)
+  _ ("net_qede", QEDE)            \
+  _ ("net_ntacc", NTACC)
 
 typedef enum
 {
@@ -167,7 +171,8 @@ typedef struct
   _( 8, BOND_SLAVE_UP, "bond-slave-up") \
   _( 9, TX_OFFLOAD, "tx-offload") \
   _(10, INTEL_PHDR_CKSUM, "intel-phdr-cksum") \
-  _(11, RX_FLOW_OFFLOAD, "rx-flow-offload")
+  _(11, RX_FLOW_OFFLOAD, "rx-flow-offload") \
+  _(12, FLOW_EVENTS, "flow-events")
 
 enum
 {
@@ -385,7 +390,7 @@ typedef struct
   u32 buffers[DPDK_RX_BURST_SZ];
   u16 next[DPDK_RX_BURST_SZ];
   u16 etype[DPDK_RX_BURST_SZ];
-  u8 flags[DPDK_RX_BURST_SZ];
+  u64 flags[DPDK_RX_BURST_SZ];
   vlib_buffer_t buffer_template;
 } dpdk_per_thread_data_t;
 
@@ -517,6 +522,7 @@ format_function_t format_dpdk_rx_offload_caps;
 format_function_t format_dpdk_tx_offload_caps;
 unformat_function_t unformat_dpdk_log_level;
 vnet_flow_dev_ops_function_t dpdk_flow_ops_fn;
+vnet_flow_dev_event_function_t dpdk_flow_event_fn;
 
 clib_error_t *unformat_rss_fn (unformat_input_t * input, uword * rss_fn);
 clib_error_t *unformat_hqos (unformat_input_t * input,

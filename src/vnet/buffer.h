@@ -94,7 +94,8 @@ _(map)						\
 _(map_t)					\
 _(ip_frag)					\
 _(mpls)					        \
-_(tcp)
+_(tcp) \
+_(intf)
 
 /*
  * vnet stack buffer opaque array overlay structure.
@@ -328,6 +329,13 @@ typedef struct
     {
       u32 flags;
     } snat;
+
+    /* Interface */
+    struct
+    {
+      u64 timestamp;
+      u16 queue_id;
+    } intf;
 
     u32 unused[6];
   };

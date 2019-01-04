@@ -60,7 +60,8 @@
   _(2, BUFFER_ADVANCE, "buffer-advance") \
   _(3, REDIRECT_TO_NODE, "redirect-to-node") \
   _(4, REDIRECT_TO_QUEUE, "redirect-to-queue") \
-  _(5, DROP, "drop")
+  _(5, REDIRECT_TO_INTERFACE, "redirect-to-interface") \
+  _(6, DROP, "drop") \
 
 typedef enum
 {
@@ -115,7 +116,7 @@ foreach_flow_type;
 #undef _fe
 
 /* main flow struct */
-typedef struct
+typedef struct vnet_flow_t
 {
   /* flow type */
   vnet_flow_type_t type;
@@ -135,6 +136,9 @@ typedef struct
 
   /* queue for VNET_FLOW_ACTION_REDIRECT_TO_QUEUE */
   u32 redirect_queue;
+
+  /* interface index for VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE */
+  u32 redirect_hw_interface;
 
   /* buffer offset for VNET_FLOW_ACTION_BUFFER_ADVANCE */
   i32 buffer_advance;

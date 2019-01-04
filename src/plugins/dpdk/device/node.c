@@ -193,16 +193,14 @@ dpdk_prefetch_buffer_data_x4 (struct rte_mbuf *mb[])
       <code>xd->per_interface_next_index</code>
 */
 
-static_always_inline u8
-dpdk_ol_flags_extract (struct rte_mbuf **mb, u8 * flags, int count)
+static_always_inline u64
+dpdk_ol_flags_extract (struct rte_mbuf **mb, u64 * flags, int count)
 {
-  u8 rv = 0;
+  u64 rv = 0;
   int i;
   for (i = 0; i < count; i++)
     {
-      /* all flags we are interested in are in lower 8 bits but
-         that might change */
-      flags[i] = (u8) mb[i]->ol_flags;
+      flags[i] = mb[i]->ol_flags;
       rv |= flags[i];
     }
   return rv;
@@ -210,7 +208,7 @@ dpdk_ol_flags_extract (struct rte_mbuf **mb, u8 * flags, int count)
 
 static_always_inline uword
 dpdk_process_rx_burst (vlib_main_t * vm, dpdk_per_thread_data_t * ptd,
-		       uword n_rx_packets, int maybe_multiseg, u8 * or_flagsp)
+		       uword n_rx_packets, int maybe_multiseg, u64 * or_flagsp)
 {
   u32 n_left = n_rx_packets;
   vlib_buffer_t *b[4];
@@ -218,7 +216,7 @@ dpdk_process_rx_burst (vlib_main_t * vm, dpdk_per_thread_data_t * ptd,
   struct rte_mbuf **mb = ptd->mbufs;
   uword n_bytes = 0;
   i16 off;
-  u8 *flags, or_flags = 0;
+  u64 *flags, or_flags = 0;
   u16 *next;
 
   fl = vlib_buffer_get_free_list (vm, VLIB_BUFFER_DEFAULT_FREE_LIST_INDEX);
@@ -337,7 +335,7 @@ dpdk_set_next_from_etype (vlib_main_t * vm, vlib_node_runtime_t * node,
   i16 adv[4];
   u16 etype[4];
   struct rte_mbuf **mb = ptd->mbufs;
-  u8 *flags = ptd->flags;
+  u64 *flags = ptd->flags;
   u16 *next = ptd->next;
   u32 n_left = n_rx_packets;
 
@@ -441,7 +439,7 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
   vlib_buffer_t *b0;
   int known_next = 0;
   u16 *next;
-  u8 or_flags;
+  u64 or_flags;
   u32 n;
 
   dpdk_per_thread_data_t *ptd = vec_elt_at_index (dm->per_thread_data,
@@ -468,6 +466,7 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
 
   /* Update buffer template */
   vnet_buffer (bt)->sw_if_index[VLIB_RX] = xd->sw_if_index;
+  vnet_buffer (bt)->intf.queue_id = queue_id;
   bt->error = node->errors[DPDK_ERROR_NONE];
   /* as DPDK is allocating empty buffers from mempool provided before interface
      start for each queue, it is safe to store this in the template */
@@ -523,6 +522,14 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
 	b0->error = node->errors[DPDK_ERROR_IP_CHECKSUM_ERROR];
 	ptd->next[n] = VNET_DEVICE_INPUT_NEXT_DROP;
       }
+
+  for (n = 0; n < n_rx_packets; n++) {
+    b0 = vlib_buffer_from_rte_mbuf (ptd->mbufs[n]);
+    if (or_flags & PKT_RX_TIMESTAMP)
+      vnet_buffer (b0)->intf.timestamp = ptd->mbufs[n]->timestamp;
+    else
+      vnet_buffer (b0)->intf.timestamp = 0;
+  }
 
   /* enqueue buffers to the next node */
   vlib_get_buffer_indices_with_offset (vm, (void **) ptd->mbufs, ptd->buffers,

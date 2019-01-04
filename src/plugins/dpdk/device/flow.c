@@ -198,12 +198,17 @@ dpdk_flow_add (dpdk_device_t * xd, vnet_flow_t * f, dpdk_flow_entry_t * fe)
   item->type = RTE_FLOW_ITEM_TYPE_END;
 
   /* Actions */
-  vec_add2 (actions, action, 1);
-  action->type = RTE_FLOW_ACTION_TYPE_PASSTHRU;
+  if (!(f->actions & VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE)) {
+    vec_add2 (actions, action, 1);
+    action->type = RTE_FLOW_ACTION_TYPE_PASSTHRU;
+  }
 
   vec_add2 (actions, action, 1);
   mark.id = fe->mark;
-  action->type = RTE_FLOW_ACTION_TYPE_MARK;
+  if (f->actions & VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE)
+    action->type = RTE_FLOW_ACTION_TYPE_PORT_ID;
+  else
+    action->type = RTE_FLOW_ACTION_TYPE_MARK;
   action->conf = &mark;
 
   vec_add2 (actions, action, 1);
@@ -221,14 +226,66 @@ done:
   return rv;
 }
 
+static int
+dpdk_flow_program(vnet_main_t * vnm, dpdk_device_t * xd, u16 queue, vnet_flow_t * f, dpdk_flow_entry_t * fe)
+{
+  struct rte_flow_5tuple tuple;
+  vnet_flow_ip4_n_tuple_t *t4 = NULL;
+  vnet_flow_ip6_n_tuple_t *t6 = NULL;
+  dpdk_main_t *dm = &dpdk_main;
+  dpdk_device_t *rd;
+  vnet_hw_interface_t *hi;
+  int ret = 0;
+
+  if (f->actions & VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE) {
+    tuple.flag = RTE_FLOW_PROGRAM_FORWARD_ACTION;
+    /* TODO: get destination port */
+    hi = vnet_get_hw_interface (vnm, f->redirect_hw_interface);
+    rd = vec_elt_at_index(dm->devices, hi->dev_instance);
+    tuple.port = rd->port_id;
+  } else {
+    ret = VNET_FLOW_ERROR_NOT_SUPPORTED;
+    goto out;
+  }
+
+  switch (f->type) {
+  case VNET_FLOW_TYPE_IP4_N_TUPLE:
+    t4 = &f->ip4_n_tuple;
+    tuple.flag |= RTE_FLOW_PROGRAM_IPV4;
+    tuple.u.IPv4.src_addr = t4->src_addr.addr.as_u32;
+    tuple.u.IPv4.dst_addr = t4->dst_addr.addr.as_u32;
+    tuple.src_port = t4->src_port.port;
+    tuple.dst_port = t4->dst_port.port;
+    tuple.proto = t4->protocol;
+    break;
+  case VNET_FLOW_TYPE_IP6_N_TUPLE:
+    t6 = &f->ip6_n_tuple;
+    tuple.flag |= RTE_FLOW_PROGRAM_IPV6;
+    clib_memcpy(tuple.u.IPv6.src_addr, &t6->src_addr.addr, 16);
+    clib_memcpy(tuple.u.IPv6.dst_addr, &t6->dst_addr.addr, 16);
+    tuple.src_port = t6->src_port.port;
+    tuple.dst_port = t6->dst_port.port;
+    tuple.proto = t6->protocol;
+    break;
+  default:
+    return VNET_FLOW_ERROR_NOT_SUPPORTED;
+  };
+
+  tuple.flowID = f->index;
+
+  ret = rte_flow_program(xd->port_id, queue, &tuple, &xd->last_flow_error);
+
+out:
+  return ret;
+}
+
 int
 dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
-		  u32 flow_index, uword * private_data)
+		  u16 queue, vnet_flow_t *flow, uword * private_data)
 {
   dpdk_main_t *dm = &dpdk_main;
-  vnet_flow_t *flow = vnet_get_flow (flow_index);
   dpdk_device_t *xd = vec_elt_at_index (dm->devices, dev_instance);
-  dpdk_flow_entry_t *fe;
+  dpdk_flow_entry_t tmp, *fe = &tmp;
   dpdk_flow_lookup_entry_t *fle = 0;
   int rv;
 
@@ -272,9 +329,6 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
   if (op != VNET_FLOW_DEV_OP_ADD_FLOW)
     return VNET_FLOW_ERROR_NOT_SUPPORTED;
 
-  pool_get (xd->flow_entries, fe);
-  fe->flow_index = flow->index;
-
   if (flow->actions == 0)
     {
       rv = VNET_FLOW_ERROR_NOT_SUPPORTED;
@@ -286,6 +340,8 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
 		       VNET_FLOW_ACTION_REDIRECT_TO_NODE |
 		       VNET_FLOW_ACTION_BUFFER_ADVANCE))
     {
+      pool_get (xd->flow_entries, fe);
+      fe->flow_index = flow->index;
       /* reserve slot 0 */
       if (xd->flow_lookup_entries == 0)
 	pool_get_aligned (xd->flow_lookup_entries, fle,
@@ -305,16 +361,25 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
   else
     fe->mark = 0;
 
+  if (flow->actions & VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE) {
+    dpdk_device_t *rd = vec_elt_at_index (dm->devices, flow->redirect_hw_interface);
+    fe->mark = rd->port_id;
+  }
+
   if ((xd->flags & DPDK_DEVICE_FLAG_RX_FLOW_OFFLOAD) == 0)
     {
       xd->flags |= DPDK_DEVICE_FLAG_RX_FLOW_OFFLOAD;
-      dpdk_device_setup (xd);
+      if (xd->pmd != VNET_DPDK_PMD_NTACC)
+        dpdk_device_setup (xd);
     }
 
   switch (flow->type)
     {
     case VNET_FLOW_TYPE_IP4_N_TUPLE:
     case VNET_FLOW_TYPE_IP6_N_TUPLE:
+      if ((rv = dpdk_flow_program(vnm, xd, queue, flow, fe)))
+        goto done;
+      break;
     case VNET_FLOW_TYPE_IP4_VXLAN:
       if ((rv = dpdk_flow_add (xd, flow, fe)))
 	goto done;
@@ -342,7 +407,8 @@ disable_rx_offload:
       && pool_elts (xd->flow_entries) == 0)
     {
       xd->flags &= ~DPDK_DEVICE_FLAG_RX_FLOW_OFFLOAD;
-      dpdk_device_setup (xd);
+      if (xd->pmd != VNET_DPDK_PMD_NTACC)
+        dpdk_device_setup (xd);
     }
 
   return rv;
@@ -376,6 +442,30 @@ format_dpdk_flow (u8 * s, va_list * args)
   fe = vec_elt_at_index (xd->flow_entries, private_data);
   s = format (s, "mark %u", fe->mark);
   return s;
+}
+
+int
+dpdk_flow_event_fn(struct vnet_main_t * vnm, u32 dev_instance, u16 queue, flow_event_t *event)
+{
+  uint16_t rv;
+  dpdk_main_t *dm = &dpdk_main;
+  dpdk_device_t *xd = vec_elt_at_index (dm->devices, dev_instance);
+  struct rte_event ev;
+
+  if (!(xd->flags&DPDK_DEVICE_FLAG_FLOW_EVENTS)) {
+    return -1;
+  }
+
+  rv = rte_event_dequeue_burst(xd->port_id, queue, &ev, 1, 0);
+
+  if (rv == 0)
+    return 0;
+
+  clib_memcpy(event, ev.event_ptr, sizeof(flow_event_t));
+
+  rte_free(ev.event_ptr);
+
+  return 1;
 }
 
 /*

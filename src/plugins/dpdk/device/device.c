@@ -573,6 +573,7 @@ VNET_DEVICE_CLASS (dpdk_device_class) = {
   .mac_addr_change_function = dpdk_set_mac_address,
   .format_flow = format_dpdk_flow,
   .flow_ops_function = dpdk_flow_ops_fn,
+  .flow_event_function = dpdk_flow_event_fn
 };
 /* *INDENT-ON* */
 
