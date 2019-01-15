@@ -227,7 +227,12 @@ done:
 }
 
 static int
-dpdk_flow_program(vnet_main_t * vnm, dpdk_device_t * xd, u16 queue, vnet_flow_t * f, dpdk_flow_entry_t * fe)
+dpdk_flow_program(vnet_main_t * vnm,
+  dpdk_device_t * xd,
+  u16 queue,
+  vnet_flow_t * f,
+  dpdk_flow_entry_t * fe,
+  int del)
 {
   struct rte_flow_5tuple tuple;
   vnet_flow_ip4_n_tuple_t *t4 = NULL;
@@ -243,6 +248,8 @@ dpdk_flow_program(vnet_main_t * vnm, dpdk_device_t * xd, u16 queue, vnet_flow_t 
     hi = vnet_get_hw_interface (vnm, f->redirect_hw_interface);
     rd = vec_elt_at_index(dm->devices, hi->dev_instance);
     tuple.port = rd->port_id;
+  } else if (del) {
+    tuple.flag = RTE_FLOW_PROGRAM_DELETE;
   } else {
     ret = VNET_FLOW_ERROR_NOT_SUPPORTED;
     goto out;
@@ -303,6 +310,10 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
 
   if (op == VNET_FLOW_DEV_OP_DEL_FLOW)
     {
+      if (!private_data) {
+        return dpdk_flow_program(vnm, xd, queue, flow, fe, 1);
+      }
+
       ASSERT (*private_data >= vec_len (xd->flow_entries));
 
       fe = vec_elt_at_index (xd->flow_entries, *private_data);
@@ -377,7 +388,7 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
     {
     case VNET_FLOW_TYPE_IP4_N_TUPLE:
     case VNET_FLOW_TYPE_IP6_N_TUPLE:
-      if ((rv = dpdk_flow_program(vnm, xd, queue, flow, fe)))
+      if ((rv = dpdk_flow_program(vnm, xd, queue, flow, fe, 0)))
         goto done;
       break;
     case VNET_FLOW_TYPE_IP4_VXLAN:
