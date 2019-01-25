@@ -206,6 +206,9 @@ typedef struct
   /* DPDK device port number */
   dpdk_portid_t port_id;
 
+  /* DPDK event device ID */
+  dpdk_portid_t event_id;
+
   u32 hw_if_index;
   u32 sw_if_index;
 

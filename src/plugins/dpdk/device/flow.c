@@ -467,7 +467,7 @@ dpdk_flow_event_fn(struct vnet_main_t * vnm, u32 dev_instance, u16 queue, flow_e
     return -1;
   }
 
-  rv = rte_event_dequeue_burst(xd->port_id, queue, &ev, 1, 0);
+  rv = rte_event_dequeue_burst(xd->event_id, queue, &ev, 1, 0);
 
   if (rv == 0)
     return 0;
