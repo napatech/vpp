@@ -373,7 +373,8 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
     fe->mark = 0;
 
   if (flow->actions & VNET_FLOW_ACTION_REDIRECT_TO_INTERFACE) {
-    dpdk_device_t *rd = vec_elt_at_index (dm->devices, flow->redirect_hw_interface);
+    dpdk_device_t *rd = vec_elt_at_index(dm->devices,
+      vnet_get_hw_interface(vnm, flow->redirect_hw_interface)->dev_instance);
     fe->mark = rd->port_id;
   }
 
