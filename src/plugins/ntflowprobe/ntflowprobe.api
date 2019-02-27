@@ -1,0 +1,38 @@
+/* Define a simple enable-disable binary API to control the feature */
+
+/** \file
+    This file defines the vpp control-plane API messages
+    used to control the flowprobe plugin
+*/
+
+option version = "1.0.0";
+
+/** \brief Enable / disable per-packet IPFIX recording on an interface
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param enable - activate flowprobe if non-zero, else disable
+    @param sw_if_index_<x> - indices of the interfaces
+    @param collector_ip - IP address of the IPFIX record collector
+    @param src_ip - Source IP address of IPFIX packets
+*/
+autoreply define ntflowprobe_enable_disable
+{
+  /* Client identifier, set from api_main.my_client_index */
+  u32 client_index;
+
+  /* Arbitrary context, so client can match reply to request */
+  u32 context;
+
+  /* Enable / disable the feature */
+  u8 enable;
+
+  /* Interface handles */
+  u32 sw_if_index_1;
+  u32 sw_if_index_2;
+
+  /* Collector IP address */
+  u32 collector_ip;
+
+  /* Source IP address */
+  u32 src_ip;
+};
