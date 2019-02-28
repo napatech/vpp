@@ -110,7 +110,7 @@ ntflowprobe_lookup(ntflowprobe_main_t *fm,
   const ntflowprobe_key_t *key,
   u32 hash)
 {
-  clist_t *bucket = &fm->per_thread_flow_tables[thread_index][hash];
+  clist_t *bucket = &fm->tdata[thread_index].flow_table[hash];
   ntflowprobe_entry_t *e;
 
   clist_for_each(e, bucket, hash_entry) {
@@ -131,16 +131,17 @@ ntflowprobe_create(ntflowprobe_main_t *fm,
   clist_t *bucket;
   ntflowprobe_entry_t *e;
 
-  pool_get(fm->per_thread_entry_pools[thread_index], e);
-  if (!e)
+  if(fm->tdata[thread_index].table_entries == fm->pool_size)
     return NULL;
 
-  *index = e - fm->per_thread_entry_pools[thread_index];
-  bucket = &fm->per_thread_flow_tables[thread_index][hash];
+  pool_get(fm->tdata[thread_index].entry_pool, e);
+
+  *index = e - fm->tdata[thread_index].entry_pool;
+  bucket = &fm->tdata[thread_index].flow_table[hash];
   e->key = *key;
   clist_insert_after(bucket, &e->hash_entry);
-  clist_insert_before(&fm->per_thread_flow_lists[thread_index], &e->list_entry);
-  fm->per_thread_table_entries[thread_index]++;
+  clist_insert_before(&fm->tdata[thread_index].flow_list, &e->list_entry);
+  fm->tdata[thread_index].table_entries++;
 
   return e;
 }
@@ -300,7 +301,7 @@ ntflowprobe_input_node_fn(vlib_main_t * vm, vlib_node_runtime_t * node, vlib_fra
 
     vlib_get_next_frame (vm, node, next_index, to_next, n_left_to_next);
 
-    while (n_left_from >= 2 && n_left_to_next >= 2)
+    while (n_left_from >= 4 && n_left_to_next >= 2)
     {
       u32 next0 = NTFLOWPROBE_NEXT_OUTPUT;
       u32 next1 = NTFLOWPROBE_NEXT_OUTPUT;

@@ -91,7 +91,7 @@ get_buffer(vlib_main_t *vm, vlib_node_runtime_t * node, ntflowprobe_config_t *co
   vlib_buffer_t *b;
   vlib_buffer_free_list_t *fl;
   struct ntflowprobe_packet_t *p;
-  ntflowprobe_thread_data_t *td = &conf->pdata[rectype].thread_data[vm->thread_index-1];
+  ntflowprobe_ipfix_thread_data_t *td = &conf->pdata[rectype].thread_data[vm->thread_index-1];
 
   if (conf->pdata[rectype].thread_data[vm->thread_index-1].buf)
     return conf->pdata[rectype].thread_data[vm->thread_index-1].buf;
@@ -167,7 +167,7 @@ static void
 send_ipfix_packet(vlib_main_t *vm, vlib_buffer_t *b, ntflowprobe_config_t *conf,
   enum ntflowprobe_l3_protocol_e rectype)
 {
-  ntflowprobe_thread_data_t *td = &conf->pdata[rectype].thread_data[vm->thread_index-1];
+  ntflowprobe_ipfix_thread_data_t *td = &conf->pdata[rectype].thread_data[vm->thread_index-1];
   u32 *to_next;
   u32 bi;
   vlib_frame_t *f;
@@ -209,7 +209,7 @@ add_ipfix_flow_record(vlib_main_t *vm,
   ntflowprobe_config_t *conf, ntflowprobe_entry_t *e,
   flow_event_t *evt, int up)
 {
-  ntflowprobe_thread_data_t *td;
+  ntflowprobe_ipfix_thread_data_t *td;
   enum ntflowprobe_l3_protocol_e rectype;
   vlib_buffer_t *b;
   u64 tmp;
@@ -286,7 +286,7 @@ remove_old_flows(vlib_main_t * vm, u32 thread_index, u32 queue_id)
 {
   ntflowprobe_main_t *fm = &ntflowprobe_main;
   vnet_main_t *vnm = fm->vnet_main;
-  clist_t *flow_list = &fm->per_thread_flow_lists[thread_index];
+  clist_t *flow_list = &fm->tdata[thread_index].flow_list;
   ntflowprobe_entry_t *flow_entry, *tmp;
   vnet_device_class_t *dev_class;
   vnet_hw_interface_t *hi;
@@ -296,7 +296,7 @@ remove_old_flows(vlib_main_t * vm, u32 thread_index, u32 queue_id)
     if (unix_time_now_nsec() < flow_entry->first_time_stamp + 30e9) {
       break;
     }
-    flow.index = flow_entry - fm->per_thread_entry_pools[thread_index];
+    flow.index = flow_entry - fm->tdata[thread_index].entry_pool;
     flow.actions = 0;
     key2flow(&flow_entry->key, &flow);
     hi = vnet_get_hw_interface (vnm,
@@ -330,13 +330,13 @@ read_and_process_flow_records(vlib_main_t * vm,
   dev_class = vnet_get_device_class (vnm, hw->dev_class_index);
 
   while (dev_class->flow_event_function(vnm, hw->dev_instance, queue_id, &evt) > 0) {
-    ASSERT(evt.id < vec_len(fm->per_thread_entry_pools[thread_index]));
-    e = &fm->per_thread_entry_pools[thread_index][evt.id];
+    ASSERT(evt.id < vec_len(fm->tdata[thread_index].entry_pool));
+    e = &fm->tdata[thread_index].entry_pool[evt.id];
     add_ipfix_flow_record(vm, node, fm, conf, e, &evt, 1); /* Upstream */
     add_ipfix_flow_record(vm, node, fm, conf, e, &evt, 0); /* DownStream */
     clist_remove(&e->hash_entry);
-    pool_put(fm->per_thread_entry_pools[thread_index], e);
-    fm->per_thread_table_entries[thread_index]--;
+    pool_put(fm->tdata[thread_index].entry_pool, e);
+    fm->tdata[thread_index].table_entries--;
     flows_read++;
   }
 }
@@ -374,7 +374,7 @@ ntflowprobe_flow_node_fn(vlib_main_t * vm, vlib_node_runtime_t * node, vlib_fram
 
       /* Send old ipfix packets */
       for (i = 0; i < NTFP_PROTO_MAX; i++) {
-        ntflowprobe_thread_data_t *td = &conf->pdata[i].thread_data[thread_index-1];
+        ntflowprobe_ipfix_thread_data_t *td = &conf->pdata[i].thread_data[thread_index-1];
         if (td->buf && (vlib_time_now(vm) - td->buf_time) >= 5) {
           send_ipfix_packet(vm, td->buf, conf, i);
         }

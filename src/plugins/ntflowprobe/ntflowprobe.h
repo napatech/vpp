@@ -51,10 +51,10 @@ typedef struct {
   vlib_buffer_t *buf;
   u64 buf_time;
   u32 seq_delta;
-} ntflowprobe_thread_data_t;
+} ntflowprobe_ipfix_thread_data_t;
 
 typedef struct {
-  ntflowprobe_thread_data_t *thread_data;
+  ntflowprobe_ipfix_thread_data_t *thread_data;
   u16 data_set_offset;
 } ntflowprobe_protocol_data_t;
 
@@ -104,6 +104,15 @@ typedef struct
 
 typedef struct
 {
+  ntflowprobe_entry_t *entry_pool;
+  clist_t *flow_table;
+  clist_t flow_list;
+  u32 table_entries;
+  u8 pad[CLIB_CACHE_LINE_BYTES];
+} ntflowprobe_main_thread_data_t;
+
+typedef struct
+{
   /** API message ID base */
   u16 msg_id_base;
 
@@ -121,10 +130,9 @@ typedef struct
 
   ntflowprobe_config_t *configs;
 
-  ntflowprobe_entry_t **per_thread_entry_pools;
-  clist_t **per_thread_flow_tables;
-  clist_t *per_thread_flow_lists;
-  u32 *per_thread_table_entries;
+  ntflowprobe_main_thread_data_t *tdata;
+
+  u32 pool_size;
 
   /** convenience vlib_main_t pointer */
   vlib_main_t *vlib_main;

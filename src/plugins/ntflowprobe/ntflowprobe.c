@@ -164,19 +164,16 @@ ntflowprobe_enable_disable(ntflowprobe_main_t * fm, int is_enable,
     *cnf->sequence_number = 0;
 
     if (!fm->initialized) {
-      u32 pool_size = NTFLOWPROBE_NFLOWS/num_threads + 1;
+      fm->pool_size = NTFLOWPROBE_NFLOWS/num_threads + 1;
       /* Allocate pools and tables */
-      vec_validate(fm->per_thread_entry_pools, num_threads);
-      vec_validate(fm->per_thread_flow_tables, num_threads);
-      vec_validate(fm->per_thread_flow_lists, num_threads);
-      vec_validate(fm->per_thread_table_entries, num_threads);
+      vec_validate(fm->tdata, num_threads);
       for (i = 0; i < num_threads; i++) {
-        pool_alloc(fm->per_thread_entry_pools[i], pool_size);
-        vec_validate(fm->per_thread_flow_tables[i], (1 << fm->ht_log2len));
-        clist_head_init(&fm->per_thread_flow_lists[i]);
-        fm->per_thread_table_entries[i] = 0;
-        for (j = 0; j < vec_len(fm->per_thread_flow_tables[i]); j++)
-          clist_head_init(&fm->per_thread_flow_tables[i][j]);
+        pool_alloc(fm->tdata[i].entry_pool, fm->pool_size);
+        vec_validate(fm->tdata[i].flow_table, (1 << fm->ht_log2len));
+        clist_head_init(&fm->tdata[i].flow_list);
+        fm->tdata[i].table_entries = 0;
+        for (j = 0; j < vec_len(fm->tdata[i].flow_table); j++)
+          clist_head_init(&fm->tdata[i].flow_table[j]);
       }
       fm->initialized = 1;
       fm->enable_hw_accel = 1;
@@ -207,12 +204,10 @@ ntflowprobe_enable_disable(ntflowprobe_main_t * fm, int is_enable,
       fm->initialized = 0;
       /* Free resources */
       for (i = 0; i < num_threads; i++) {
-        vec_free(fm->per_thread_entry_pools[i]);
-        vec_free(fm->per_thread_flow_tables[i]);
+        vec_free(fm->tdata[i].entry_pool);
+        vec_free(fm->tdata[i].flow_table);
       }
-      vec_free(fm->per_thread_entry_pools);
-      vec_free(fm->per_thread_flow_tables);
-      vec_free(fm->per_thread_table_entries);
+      vec_free(fm->tdata);
     }
   }
 
@@ -269,7 +264,7 @@ ntflowprobe_status_fn(vlib_main_t * vm, unformat_input_t * input,
   vnet_main_t *vnm = vnet_get_main ();
   ntflowprobe_main_t *fm = &ntflowprobe_main;
   ntflowprobe_config_t *cnf;
-  u32 *ents;
+  ntflowprobe_main_thread_data_t *td;
   int t;
 
   vlib_cli_output(vm, "NtFlowProbe Status: %s", fm->initialized ? "Enabled" : "Disabled");
@@ -287,8 +282,8 @@ ntflowprobe_status_fn(vlib_main_t * vm, unformat_input_t * input,
     vlib_cli_output(vm, "Src:       %U", format_ip4_address, &cnf->src);
 
     t = 0;
-    vec_foreach(ents, fm->per_thread_table_entries) {
-      vlib_cli_output(vm, "Thread %d table entries: %u", t++, *ents);
+    vec_foreach(td, fm->tdata) {
+      vlib_cli_output(vm, "Thread %d table entries: %u", t++, td->table_entries);
     }
   }
 
