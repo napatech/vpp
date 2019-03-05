@@ -390,7 +390,7 @@ dpdk_flow_ops_fn (vnet_main_t * vnm, vnet_flow_dev_op_t op, u32 dev_instance,
     case VNET_FLOW_TYPE_IP4_N_TUPLE:
     case VNET_FLOW_TYPE_IP6_N_TUPLE:
       if ((rv = dpdk_flow_program(vnm, xd, queue, flow, fe, 0)))
-        goto done;
+        return rv;
       break;
     case VNET_FLOW_TYPE_IP4_VXLAN:
       if ((rv = dpdk_flow_add (xd, flow, fe)))

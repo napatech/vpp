@@ -172,6 +172,7 @@ ntflowprobe_enable_disable(ntflowprobe_main_t * fm, int is_enable,
         vec_validate(fm->tdata[i].flow_table, (1 << fm->ht_log2len));
         clist_head_init(&fm->tdata[i].flow_list);
         fm->tdata[i].table_entries = 0;
+        fm->tdata[i].max_diff = 0;
         for (j = 0; j < vec_len(fm->tdata[i].flow_table); j++)
           clist_head_init(&fm->tdata[i].flow_table[j]);
       }
@@ -268,6 +269,7 @@ ntflowprobe_status_fn(vlib_main_t * vm, unformat_input_t * input,
   int t;
 
   vlib_cli_output(vm, "NtFlowProbe Status: %s", fm->initialized ? "Enabled" : "Disabled");
+  vlib_cli_output(vm, "Flow table buckets: %u", 1 << fm->ht_log2len);
 
   vec_foreach(cnf, fm->configs) {
     if (cnf->sw_if_idxs[0] == ~0U)
@@ -283,7 +285,8 @@ ntflowprobe_status_fn(vlib_main_t * vm, unformat_input_t * input,
 
     t = 0;
     vec_foreach(td, fm->tdata) {
-      vlib_cli_output(vm, "Thread %d table entries: %u", t++, td->table_entries);
+      vlib_cli_output(vm, "Thread %d table entries: %u, stat: %u",
+        t++, td->table_entries, td->max_diff);
     }
   }
 
@@ -392,10 +395,14 @@ static clib_error_t *
 ntflowprobe_init (vlib_main_t * vm)
 {
   ntflowprobe_main_t *fm = &ntflowprobe_main;
+  vlib_thread_main_t *tm = &vlib_thread_main;
   vnet_interface_main_t *im;
   clib_error_t *error = 0;
   u8 *name;
   int i;
+  const u32 flow_collision_size = 40;
+  u32 nbuckets;
+
 
   fm->vnet_main = vnet_get_main ();
   im = &fm->vnet_main->interface_main;
@@ -419,7 +426,10 @@ ntflowprobe_init (vlib_main_t * vm)
   fm->vlib_time_0 = vlib_time_now (vm);
   fm->nanosecond_time_0 = unix_time_now_nsec ();
 
-  fm->ht_log2len = NTFLOWPROBE_LOG2_HASHBUCKETS;
+  /* Calculate flow table size */
+  nbuckets = NTFLOWPROBE_NFLOWS/(flow_collision_size*tm->n_threads);
+  fm->ht_log2len = 0;
+  while ((1<<fm->ht_log2len) < nbuckets) fm->ht_log2len++;
 
   vec_validate(fm->configs, vec_len(im->hw_interfaces)/2);
   for (i = 0; i < vec_len(fm->configs); i++)

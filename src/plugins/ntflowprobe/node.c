@@ -184,9 +184,10 @@ ntflowprobe_handle_packet(vlib_main_t *vm, vlib_node_runtime_t * node,
   vnet_device_class_t *dev_class;
   vnet_hw_interface_t *hi;
   uword private_data;
-  u32 dl_sw_if = config->sw_if_idxs[rx_if_idx];
-  u32 ul_sw_if = config->sw_if_idxs[rx_if_idx^1];
+  u32 dl_sw_if = config->sw_if_idxs[0];
+  u32 ul_sw_if = config->sw_if_idxs[1];
   u32 hash;
+  int status;
 
 
   if (etype != ETHERNET_TYPE_IP4 && etype != ETHERNET_TYPE_IP6)
@@ -251,6 +252,7 @@ ntflowprobe_handle_packet(vlib_main_t *vm, vlib_node_runtime_t * node,
     e->tcp_flags_1 = e->tcp_flags_2 = 0;
     e->first_time_stamp = vnet_buffer(b)->intf.timestamp;
     e->rx_if_idx = rx_if_idx;
+    e->hw_enabled = 1;
 
     if (fm->enable_hw_accel) {
       flow.index = flow_index;
@@ -260,8 +262,10 @@ ntflowprobe_handle_packet(vlib_main_t *vm, vlib_node_runtime_t * node,
       /* write flow */
       hi = vnet_get_hw_interface (vnm, vnet_get_sw_interface(vnm, dl_sw_if)->hw_if_index);
       dev_class = vnet_get_device_class (vnm, hi->dev_class_index);
-      dev_class->flow_ops_function(vnm, VNET_FLOW_DEV_OP_ADD_FLOW,
-				     hi->dev_instance, vnet_buffer(b)->intf.queue_id, &flow, &private_data);
+      status = dev_class->flow_ops_function(vnm, VNET_FLOW_DEV_OP_ADD_FLOW,
+				         hi->dev_instance, vnet_buffer(b)->intf.queue_id, &flow, &private_data);
+			if (status)
+			  e->hw_enabled = 0;
     }
   }
 

@@ -38,7 +38,7 @@
 /* Default timers in seconds */
 #define NTFLOWPROBE_TIMER_ACTIVE   (15)
 #define NTFLOWPROBE_TIMER_PASSIVE  120	// XXXX: FOR TESTING (30*60)
-#define NTFLOWPROBE_LOG2_HASHBUCKETS  (15)
+#define NTFLOWPROBE_LOG2_HASHBUCKETS  (16)
 #define NTFLOWPROBE_NFLOWS (100000000) /* One hundred million flows supported */
 
 enum ntflowprobe_l3_protocol_e {
@@ -94,6 +94,7 @@ typedef struct {
   u16 tcp_flags_1;
   u16 tcp_flags_2;
   u8 rx_if_idx;
+  u8 hw_enabled;
 } ntflowprobe_entry_t;
 
 typedef struct
@@ -107,7 +108,11 @@ typedef struct
   ntflowprobe_entry_t *entry_pool;
   clist_t *flow_table;
   clist_t flow_list;
+  /* Status */
   u32 table_entries;
+  /* Debug */
+  u32 last_del;
+  u32 max_diff;
   u8 pad[CLIB_CACHE_LINE_BYTES];
 } ntflowprobe_main_thread_data_t;
 

@@ -216,10 +216,24 @@ add_ipfix_flow_record(vlib_main_t *vm,
   u8* dp;
   u64 ts;
   u64 pkts, octs;
+  u64 packets_1, packets_2, octets_1, octets_2;
+  u16 flags_1, flags_2;
 
+  if (evt) {
+    packets_1 = evt->packets_1;
+    packets_2 = evt->packets_2;
+    octets_1 = evt->octets_1;
+    octets_2 = evt->octets_2;
+    flags_1 = evt->flags_1;
+    flags_2 = evt->flags_2;
+  } else {
+    packets_1 = packets_2 = 0;
+    octets_1 = octets_2 = 0;
+    flags_1 = flags_2 = 0;
+  }
 
-  pkts = clib_host_to_net_u64(up ? (evt->packets_1 + e->pkts_1) : (evt->packets_2 + e->pkts_2));
-  octs = clib_host_to_net_u64(up ? (evt->octets_1 + e->octets_1) : (evt->octets_2 + e->octets_2));
+  pkts = clib_host_to_net_u64(up ? (packets_1 + e->pkts_1) : (packets_2 + e->pkts_2));
+  octs = clib_host_to_net_u64(up ? (octets_1 + e->octets_1) : (octets_2 + e->octets_2));
 
   if (!pkts || !octs)
     return;
@@ -262,7 +276,7 @@ add_ipfix_flow_record(vlib_main_t *vm,
   clib_memcpy(dp, &octs, 8);
   dp += 8;
 
-  tmp = clib_host_to_net_u16(up ? (evt->flags_1 + e->tcp_flags_1) : (evt->flags_2 + e->tcp_flags_2));
+  tmp = clib_host_to_net_u16(up ? (flags_1 + e->tcp_flags_1) : (flags_2 + e->tcp_flags_2));
   clib_memcpy(dp, &tmp, 2);
   dp += 2;
 
@@ -270,7 +284,10 @@ add_ipfix_flow_record(vlib_main_t *vm,
   clib_memcpy(dp, &ts, 8);
   dp += 8;
 
-  ts = clib_host_to_net_u64(evt->time_stamp/1000000);
+  if (evt)
+    ts = clib_host_to_net_u64(evt->time_stamp/1000000);
+  else
+    ts = clib_host_to_net_u64(e->first_time_stamp/1000000);
   clib_memcpy(dp, &ts, 8);
 
   td->seq_delta++;
@@ -281,8 +298,13 @@ add_ipfix_flow_record(vlib_main_t *vm,
   }
 }
 
-static void
-remove_old_flows(vlib_main_t * vm, u32 thread_index, u32 queue_id)
+static u32
+remove_old_flows(vlib_main_t * vm,
+  vlib_node_runtime_t * node,
+  ntflowprobe_config_t *conf,
+  u32 thread_index,
+  u32 queue_id,
+  u32 n)
 {
   ntflowprobe_main_t *fm = &ntflowprobe_main;
   vnet_main_t *vnm = fm->vnet_main;
@@ -291,11 +313,26 @@ remove_old_flows(vlib_main_t * vm, u32 thread_index, u32 queue_id)
   vnet_device_class_t *dev_class;
   vnet_hw_interface_t *hi;
   vnet_flow_t flow;
+  u32 ret = 0;
+
+  if (!n)
+    return 0;
 
   clist_for_each_safe(flow_entry, tmp, flow_list, list_entry) {
     if (unix_time_now_nsec() < flow_entry->first_time_stamp + 30e9) {
       break;
     }
+
+    if (!flow_entry->hw_enabled) {
+      clist_remove(&flow_entry->list_entry);
+      add_ipfix_flow_record(vm, node, fm, conf, flow_entry, NULL, 1); /* Upstream */
+      add_ipfix_flow_record(vm, node, fm, conf, flow_entry, NULL, 0); /* DownStream */
+      clist_remove(&flow_entry->hash_entry);
+      pool_put(fm->tdata[thread_index].entry_pool, flow_entry);
+      fm->tdata[thread_index].table_entries--;
+      continue;
+    }
+
     flow.index = flow_entry - fm->tdata[thread_index].entry_pool;
     flow.actions = 0;
     key2flow(&flow_entry->key, &flow);
@@ -304,30 +341,33 @@ remove_old_flows(vlib_main_t * vm, u32 thread_index, u32 queue_id)
             flow_entry->key.config->sw_if_idxs[0])->hw_if_index);
     dev_class = vnet_get_device_class (vnm, hi->dev_class_index);
     dev_class->flow_ops_function(vnm, VNET_FLOW_DEV_OP_DEL_FLOW,
-           hi->dev_instance, queue_id, &flow, NULL);
+               hi->dev_instance, queue_id, &flow, NULL);
+
+    if (++ret > n)
+      return ret-1;
 
     clist_remove(&flow_entry->list_entry);
   }
+
+  return ret;
 }
 
 void
 read_and_process_flow_records(vlib_main_t * vm,
   vlib_node_runtime_t * node,
   vnet_hw_interface_t *hw,
-  u32 queue_id, ntflowprobe_config_t *conf)
+  u32 queue_id,
+  ntflowprobe_config_t *conf,
+  u8 first_run)
 {
   ntflowprobe_main_t *fm = &ntflowprobe_main;
   vnet_main_t *vnm = fm->vnet_main;
   u32 thread_index = vm->thread_index - 1;
-  vnet_device_class_t *dev_class;
-  u32 flows_read = 0;
+  vnet_device_class_t *dev_class = vnet_get_device_class (vnm, hw->dev_class_index);
   flow_event_t evt;
   ntflowprobe_entry_t *e;
-
-  /* TODO: remove when FPGA can time out flows */
-  remove_old_flows(vm, thread_index, queue_id);
-
-  dev_class = vnet_get_device_class (vnm, hw->dev_class_index);
+  const u32 max_delete = 256;
+  u32 n_ops = 0, tmp;
 
   while (dev_class->flow_event_function(vnm, hw->dev_instance, queue_id, &evt) > 0) {
     ASSERT(evt.id < vec_len(fm->tdata[thread_index].entry_pool));
@@ -337,7 +377,16 @@ read_and_process_flow_records(vlib_main_t * vm,
     clist_remove(&e->hash_entry);
     pool_put(fm->tdata[thread_index].entry_pool, e);
     fm->tdata[thread_index].table_entries--;
-    flows_read++;
+    n_ops++;
+  }
+
+  if (n_ops < fm->tdata[thread_index].last_del && first_run)
+    fm->tdata[thread_index].max_diff = (fm->tdata[thread_index].last_del - n_ops);
+
+  /* TODO: remove when FPGA can time out flows */
+  if (first_run) {
+    tmp = remove_old_flows(vm, node, conf, thread_index, queue_id, max_delete);
+    fm->tdata[thread_index].last_del = tmp;
   }
 }
 
@@ -351,6 +400,7 @@ ntflowprobe_flow_node_fn(vlib_main_t * vm, vlib_node_runtime_t * node, vlib_fram
   vnet_hw_interface_t *hw;
   u32 thread_index = vm->thread_index;
   int i;
+  u8 first_run = 1;
 
   if (thread_index == 0)
     return 0;
@@ -360,14 +410,14 @@ ntflowprobe_flow_node_fn(vlib_main_t * vm, vlib_node_runtime_t * node, vlib_fram
 
   vec_foreach(hw, ifm->hw_interfaces) {
     vec_foreach(conf, fm->configs) {
-      if (hw->sw_if_index != conf->sw_if_idxs[0] &&
-          hw->sw_if_index != conf->sw_if_idxs[1]) {
+      if (hw->sw_if_index != conf->sw_if_idxs[0]) {
         continue;
       }
       u32 queue_id = 0, *t_idx;
       vec_foreach(t_idx, hw->input_node_thread_index_by_queue) {
         if (*t_idx == thread_index) {
-          read_and_process_flow_records(vm, node, hw, queue_id, conf);
+          read_and_process_flow_records(vm, node, hw, queue_id, conf, first_run);
+          first_run = 0;
         }
         queue_id++;
       }
