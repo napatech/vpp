@@ -171,6 +171,7 @@ ntflowprobe_enable_disable(ntflowprobe_main_t * fm, int is_enable,
         pool_alloc(fm->tdata[i].entry_pool, fm->pool_size);
         vec_validate(fm->tdata[i].flow_table, (1 << fm->ht_log2len));
         clist_head_init(&fm->tdata[i].flow_list);
+        clist_head_init(&fm->tdata[i].remove_list);
         fm->tdata[i].table_entries = 0;
         fm->tdata[i].max_diff = 0;
         for (j = 0; j < vec_len(fm->tdata[i].flow_table); j++)

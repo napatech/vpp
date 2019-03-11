@@ -347,6 +347,18 @@ remove_old_flows(vlib_main_t * vm,
       return ret-1;
 
     clist_remove(&flow_entry->list_entry);
+    clist_insert_before(&fm->tdata[thread_index].remove_list, &flow_entry->list_entry);
+  }
+
+  flow_list = &fm->tdata[thread_index].remove_list;
+  clist_for_each_safe(flow_entry, tmp, flow_list, list_entry) {
+    if (unix_time_now_nsec() < flow_entry->first_time_stamp + 40e9) {
+      break;
+    }
+    clist_remove(&flow_entry->list_entry);
+    clist_remove(&flow_entry->hash_entry);
+    pool_put(fm->tdata[thread_index].entry_pool, flow_entry);
+    fm->tdata[thread_index].table_entries--;
   }
 
   return ret;
@@ -375,6 +387,7 @@ read_and_process_flow_records(vlib_main_t * vm,
     add_ipfix_flow_record(vm, node, fm, conf, e, &evt, 1); /* Upstream */
     add_ipfix_flow_record(vm, node, fm, conf, e, &evt, 0); /* DownStream */
     clist_remove(&e->hash_entry);
+    clist_remove(&e->list_entry);
     pool_put(fm->tdata[thread_index].entry_pool, e);
     fm->tdata[thread_index].table_entries--;
     n_ops++;

@@ -108,6 +108,7 @@ typedef struct
   ntflowprobe_entry_t *entry_pool;
   clist_t *flow_table;
   clist_t flow_list;
+  clist_t remove_list;
   /* Status */
   u32 table_entries;
   /* Debug */
